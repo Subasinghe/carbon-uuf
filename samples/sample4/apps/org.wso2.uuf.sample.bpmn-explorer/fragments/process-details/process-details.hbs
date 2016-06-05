@@ -1,0 +1,18 @@
+{{!--headJs "js/process-details.js"--}}
+    <table class="table table-responsive table-striped" id="process-view">
+        <tr>
+            <th>Package Name </th>
+            <th>Process Name </th>
+            <th>Process Definition ID</th>
+            <th>Version</th>
+            <th>Action</th>
+        </tr>
+        {{#each ../data}}
+            <tr>
+                <td>{{package-name}}</td>
+                <td>{{process-name}}</td>
+                <td>{{process-def-id}}</td>
+                <td>{{version}}</td>
+            </tr>
+        {{/each}}
+    </table>

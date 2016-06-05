@@ -1,0 +1,20 @@
+appName : BPMN Explorer
+elementsPerPage: 10
+lifecycle:
+    - state: adopted
+      show: false
+    - state: new
+      show: true
+defaultTheme : org.wso2.uuf.theme.green
+menu :
+  main :
+    - { icon: "fw-home", link: "#home", text: "Home" }
+    - MY TASKS :
+      - { icon: "fw fw-list", link: "bpmn", text: "MY TASKS" }
+    - CLAIMABLE TASKS :
+      - { icon: "fw fw-add", link: "bpmn/claimableTasks", text: "CLAIMABLE TASKS" }
+    - COMPLETED TASKS :
+      - { icon: "fw fw-bug", link: "bpmn/historicTasks", text: "COMPLETED TASKS" }
+    - PROCESSES :
+      - { icon: "fw fw-list", link: "bpmn/process", text: "PROCESSES" }
+

@@ -38,6 +38,7 @@
         <module>apps/org.wso2.uuf.sample.pets-store</module>
         <module>apps/org.wso2.uuf.sample.devices-store</module>
         <module>apps/org.wso2.uuf.sample.features-app</module>
+        <module>apps/org.wso2.uuf.sample.bpmn-explorer</module>
     </modules>
 
 </project>
