@@ -18,7 +18,7 @@
 var onRequest = function (context) {
     var session = getSession();
     if (!session) {
-        session = createSession("rasika");
+        session = createSession("admin");
     }
     return {"username": session.getUser().getUsername()};
 };

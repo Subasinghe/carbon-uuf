@@ -17,14 +17,11 @@
 package org.wso2.carbon.uuf.api;
 
 import org.wso2.carbon.uuf.exception.InvalidTypeException;
-import org.wso2.carbon.uuf.exception.MalformedConfigurationException;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -34,9 +31,12 @@ import java.util.function.Function;
 public class Configuration extends HashMap<String, Object> {
 
     public static final String KEY_APP_CONTEXT = "appContext";
-    public static final String KEY_DEFAULT_THEME = "defaultTheme";
-    public static final String KEY_ERROR_PAGES = "errorPages";
+    public static final String KEY_APP_CONTEXT_SERVER = "server";
+    public static final String KEY_APP_CONTEXT_CLIENT = "client";
+    public static final String KEY_THEME = "theme";
+    public static final String KEY_LOGIN_PAGE_URI = "loginPageUri";
     public static final String KEY_MENU = "menu";
+    public static final String KEY_ERROR_PAGES = "errorPages";
 
     public Configuration(Map<?, ?> rawMap) {
         this(rawMap.size());
@@ -54,85 +54,138 @@ public class Configuration extends HashMap<String, Object> {
         super(initialCapacity);
     }
 
-    public Optional<String> getAppContext() {
+    private Object getAppContext() {
         Object appContextObj = get(KEY_APP_CONTEXT);
         if (appContextObj == null) {
-            return Optional.<String>empty();
+            return null;
         }
-        if (appContextObj instanceof String) {
-            String appContext = (String) appContextObj;
-            if (appContext.isEmpty()) {
-                throw new IllegalArgumentException("App context cannot be empty.");
-            }
-            if (appContext.charAt(0) == '/') {
-                throw new IllegalArgumentException(
-                        "App context must start with a '/'. Instead found '" + appContext.charAt(0) + "'.");
-            }
-            return Optional.of(appContext);
-        } else {
-            throw new InvalidTypeException(
-                    "Value of 'appContext' in the root component configuration must be a string. Instead found '" +
-                            appContextObj.getClass().getName() + "'.");
+        if (!(appContextObj instanceof String) && !(appContextObj instanceof Map)) {
+            throw new InvalidTypeException("Value of 'appContext' in the app configuration must be either a string " +
+                                                   "or a Map<String, String>. Instead found '" +
+                                                   appContextObj.getClass().getName() + "'.");
         }
+        return appContextObj;
     }
 
-    public String getDefaultThemeName() {
-        Object defaultThemeNameObj = get(KEY_DEFAULT_THEME);
-        if (defaultThemeNameObj == null) {
-            throw new MalformedConfigurationException(
-                    "Cannot find the value of 'defaultTheme' in the root component configurations.");
+    public String getServerAppContext() {
+        Object appContextObj = getAppContext();
+        if (appContextObj == null) {
+            return null;
         }
-        if (defaultThemeNameObj instanceof String) {
-            String defaultThemeName = (String) defaultThemeNameObj;
-            if (defaultThemeName.isEmpty()) {
-                throw new IllegalArgumentException("Default theme name cannot be empty.");
-            }
-            return defaultThemeName;
-        } else {
+        if (appContextObj instanceof String) {
+            return (String) appContextObj;
+        }
+        // appContextObj must be a Map
+        Map<?, ?> appContext = (Map) appContextObj;
+        Object serverAppContextObj = appContext.get(KEY_APP_CONTEXT_SERVER);
+        if (serverAppContextObj == null) {
+            return null;
+        }
+        if (!(serverAppContextObj instanceof String)) {
             throw new InvalidTypeException(
-                    "Value of 'defaultTheme' in the root component configuration must be a string. Instead found '" +
-                            defaultThemeNameObj.getClass().getName() + "'.");
+                    "Value of 'server' in 'appContext' Map in the app configuration must be a string. Instead found '" +
+                            serverAppContextObj.getClass().getName() + "'.");
         }
+        return (String) serverAppContextObj;
+    }
+
+    public String getClientAppContext() {
+        Object appContextObj = getAppContext();
+        if (!(appContextObj instanceof Map)) {
+            return null;
+        }
+        Map<?, ?> appContext = (Map) appContextObj;
+        Object clientAppContextObj = appContext.get(KEY_APP_CONTEXT_CLIENT);
+        if (clientAppContextObj == null) {
+            return null;
+        }
+        if (!(clientAppContextObj instanceof String)) {
+            throw new InvalidTypeException(
+                    "Value of 'client' in 'appContext' Map in the app configuration must be a string. Instead found '" +
+                            clientAppContextObj.getClass().getName() + "'.");
+        }
+        return (String) clientAppContextObj;
+    }
+
+    public String getThemeName() {
+        Object themeNameObj = get(KEY_THEME);
+        if (themeNameObj == null) {
+            return null;
+        }
+        if (!(themeNameObj instanceof String)) {
+            throw new InvalidTypeException(
+                    "Value of 'theme' in the app configuration must be a string. Instead found '" +
+                            themeNameObj.getClass().getName() + "'.");
+        }
+        String themeName = (String) themeNameObj;
+        if (themeName.isEmpty()) {
+            throw new IllegalArgumentException("Value of 'theme' in the app configuration cannot be empty.");
+        }
+        return themeName;
+    }
+
+    public String getLoginPageUri() {
+        Object loginPageUriObj = get(KEY_LOGIN_PAGE_URI);
+        if (loginPageUriObj == null) {
+            return null;
+        }
+        if (!(loginPageUriObj instanceof String)) {
+            throw new InvalidTypeException(
+                    "Value of 'loginPageUri' in the app configuration must be a string. Instead found '" +
+                            loginPageUriObj.getClass().getName() + "'.");
+        }
+        String loginPageUri = (String) loginPageUriObj;
+        if (loginPageUri.isEmpty()) {
+            throw new IllegalArgumentException("Value of 'loginPageUri' in the app configuration cannot be empty.");
+        }
+        if (loginPageUri.charAt(0) == '/') {
+            throw new IllegalArgumentException(
+                    "Value of 'loginPageUri' in the app configuration must start with a '/'. Instead found '" +
+                            loginPageUri.charAt(0) + "' at the beginning.");
+        }
+        return loginPageUri;
     }
 
     /**
-     * Returns List of Menu Items for this 'name'. Menu Item can be a Map(end item), or a List(sub-menu).
-     * When there is no menu associated with the specified 'name' returns an empty list.
-     * @param name menu name
-     * @return List of menu items or empty list
+     * Returns the list of menu-items of the menu identified by the given {@code name}. If there is no menu associated
+     * with the given name, then an empty list is returned.
+     *
+     * @param name name of the menu
+     * @return list of menu-items
      */
-    public List<Object> getMenu(String name) {
-        //validate menu property
-        Object value = super.get(KEY_MENU);
-        if ((value == null)){
-            return new ArrayList<>();
-        } else if (!(value instanceof Map)) {
+    @SuppressWarnings("unchecked")
+    public List<Map> getMenu(String name) {
+        // validate menu property
+        Object menuObj = super.get(KEY_MENU);
+        if (menuObj == null) {
+            return Collections.emptyList();
+        } else if (!(menuObj instanceof Map)) {
             throw new InvalidTypeException(
-                    "Menu property on the configurations must be a map / dictionary. Instead found " + value.getClass().getName() + ".");
+                    "Value of 'menu' in the configurations must be a Map<String, Object>. Instead found " +
+                            menuObj.getClass().getName() + ".");
         }
-        //validate requested menu
-        Object menuObj = ((Map)value).get(name);
-        if ((menuObj == null)){
-            return new ArrayList<>();
-        } else if (!(menuObj instanceof List)) {
+        // validate requested menu
+        Object menuListObj = ((Map) menuObj).get(name);
+        if (menuListObj == null) {
+            return Collections.emptyList();
+        } else if (!(menuListObj instanceof List)) {
             throw new InvalidTypeException(
-                    "Menu of '" + name + "' must be a list. Instead found " + value.getClass().getName() + ".");
+                    "Menu '" + name + "' must be a List<Map>. Instead found " + menuObj.getClass().getName() + ".");
         }
-        @SuppressWarnings("unchecked")
-        List<Object> menu = (List) menuObj;
-        //validate menu items
-        for (int index = 0; index < menu.size(); index++) {
-            Object obj = menu.get(index);
-            if (obj == null) {
+        List menuList = (List) menuListObj;
+        // validate menu items
+        for (int i = 0; i < menuList.size(); i++) {
+            Object item = menuList.get(i);
+            if (item == null) {
                 throw new InvalidTypeException(
-                        "Menu item[" + index + "] for the menu '" + name + "' must be non-empty.");
-            } else if (!(obj instanceof Map || obj instanceof List)) {
+                        "Menu '" + name + "' must be a List<Map>. Instead found a null value at index " + i + ".");
+            } else if (!(item instanceof Map)) {
                 throw new InvalidTypeException(
-                        "Menu item[" + index + "] for the menu '" + name + "' must be a list or a map. Instead found " +
-                                value.getClass().getName() + ".");
+                        "Menu '" + name + "' must be a List<Map>. Instead found a '" + item.getClass().getName() +
+                                "' value at index " + i + ".");
             }
         }
-        return menu;
+        return (List<Map>) menuList;
     }
 
     @SuppressWarnings("unchecked")
@@ -146,19 +199,19 @@ public class Configuration extends HashMap<String, Object> {
             for (Entry<?, ?> entry : errorPagesMap.entrySet()) {
                 if (!(entry.getKey() instanceof String)) {
                     throw new InvalidTypeException(
-                            "Value of 'errorPages' in the root component configuration must be a Map<String, String>." +
+                            "Value of 'errorPages' in the app configuration must be a Map<String, String>." +
                                     " Instead found a '" + entry.getKey().getClass().getName() + "' key.");
                 }
                 if (!(entry.getValue() instanceof String)) {
                     throw new InvalidTypeException(
-                            "Value of 'errorPages' in the root component configuration must be a Map<String, String> " +
+                            "Value of 'errorPages' in the app configuration must be a Map<String, String> " +
                                     "Instead found a '" + entry.getValue().getClass().getName() + "' value.");
                 }
             }
             return (Map<String, String>) errorPagesMap;
         } else {
             throw new InvalidTypeException(
-                    "Value of 'errorPages' in the root component configuration must be a Map<String, String>. " +
+                    "Value of 'errorPages' in the app configuration must be a Map<String, String>. " +
                             "Instead found '" + errorPagesObj.getClass().getName() + "'.");
         }
     }
@@ -169,7 +222,8 @@ public class Configuration extends HashMap<String, Object> {
             return (String) value;
         } else {
             throw new InvalidTypeException(
-                    "Value of '" + key + "' must be a string. Instead found '" + value.getClass().getName() + "'.");
+                    "Value of '" + key + "' in the configuration must be a string. Instead found '" +
+                            value.getClass().getName() + "'.");
         }
     }
 
