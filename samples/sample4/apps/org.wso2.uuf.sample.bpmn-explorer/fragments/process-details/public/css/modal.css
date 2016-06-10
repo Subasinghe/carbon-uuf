@@ -1,0 +1,6 @@
+#diagramScroll {
+    width: 100%;
+    height: 70%;
+    overflow-x: scroll;
+    overflow-y: scroll;
+}

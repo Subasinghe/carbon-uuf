@@ -6,6 +6,8 @@ lifecycle:
     - state: new
       show: true
 defaultTheme : org.wso2.uuf.theme.green
+bpsHost: localhost
+bpsPort: 9443
 menu :
   main :
     - { icon: "fw-home", link: "#home", text: "Home" }
