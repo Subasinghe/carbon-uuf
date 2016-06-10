@@ -1,28 +1,26 @@
 {{layout "org.wso2.uuf.base.main"}}
-
+{{title @app.config.appName " | " @pathParams.id}}
 {{#fillZone "content"}}
+    {{css "css/bpmn-explorer.css"}}
     {{#if processInstanceData}}
-        <div class="col-md-8">
-            <h2>Process Instance Info</h2>
-            <br />
-        </div>
-
-        <div class="panel panel-default">
-            <div class="panel-body">
-                process Id : {{processInstanceData.process-def-id}}
-                <br />
-                process Instance Id : {{processInstanceData.process-instance-id}}
-                <br />
+        <div class="process-instance-info">
+            <div class="panel panel-default">
+                <div class="panel-heading">Process Instance Info</div>
+                <div class="panel-body">
+                    process Id : {{processInstanceData.process-def-id}}
+                    <br />
+                    process Instance Id : {{processInstanceData.process-instance-id}}
+                    <br />
+                </div>
             </div>
         </div>
     {{else}}
-        <div class="col-md-8">
-            <h2>Error Message</h2>
-            <br />
-        </div>
-        <div class="panel panel-default">
-            <div class="panel-body">
-                {{error-message}}
+        <div class="process-instance-info">
+            <div class="panel panel-default">
+                <div class="panel-heading">Error Message</div>
+                <div class="panel-body">
+                    {{error-message}}
+                </div>
             </div>
         </div>
     {{/if}}
