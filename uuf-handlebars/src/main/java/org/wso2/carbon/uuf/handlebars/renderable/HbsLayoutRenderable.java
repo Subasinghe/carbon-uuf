@@ -19,7 +19,7 @@ package org.wso2.carbon.uuf.handlebars.renderable;
 import com.github.jknack.handlebars.Context;
 import com.github.jknack.handlebars.io.TemplateSource;
 import org.wso2.carbon.uuf.core.API;
-import org.wso2.carbon.uuf.core.ComponentLookup;
+import org.wso2.carbon.uuf.core.Lookup;
 import org.wso2.carbon.uuf.core.RequestLookup;
 import org.wso2.carbon.uuf.exception.UUFException;
 import org.wso2.carbon.uuf.handlebars.PlaceholderWriter;
@@ -34,8 +34,8 @@ public class HbsLayoutRenderable extends HbsRenderable {
     }
 
     @Override
-    public String render(Model model, ComponentLookup lookup, RequestLookup requestLookup, API api) {
-        Context context = Context.newContext(getHbsModel(lookup, requestLookup));
+    public String render(Model model, Lookup lookup, RequestLookup requestLookup, API api) {
+        Context context = Context.newContext(getHbsModel(model, lookup, requestLookup, api));
         context.data(DATA_KEY_LOOKUP, lookup);
         context.data(DATA_KEY_REQUEST_LOOKUP, requestLookup);
         context.data(DATA_KEY_API, api);

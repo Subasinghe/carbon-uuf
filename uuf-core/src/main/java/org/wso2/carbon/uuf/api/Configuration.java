@@ -30,6 +30,7 @@ import java.util.function.Function;
  */
 public class Configuration extends HashMap<String, Object> {
 
+    // TODO: 6/8/16 Cache values of 'appContext', 'theme', 'loginPageUri', 'menu', 'errorPages' configs
     public static final String KEY_APP_CONTEXT = "appContext";
     public static final String KEY_APP_CONTEXT_SERVER = "server";
     public static final String KEY_APP_CONTEXT_CLIENT = "client";
@@ -40,14 +41,7 @@ public class Configuration extends HashMap<String, Object> {
 
     public Configuration(Map<?, ?> rawMap) {
         this(rawMap.size());
-        for (Entry<?, ?> entry : rawMap.entrySet()) {
-            if (entry.getKey() instanceof String) {
-                super.put((String) entry.getKey(), entry.getValue());
-            } else {
-                throw new InvalidTypeException("Configurations must be a Map<String, Object>. Instead found a '" +
-                                                       entry.getKey().getClass().getName() + "' key.");
-            }
-        }
+        merge(rawMap);
     }
 
     private Configuration(int initialCapacity) {
@@ -148,44 +142,44 @@ public class Configuration extends HashMap<String, Object> {
 
     /**
      * Returns the list of menu-items of the menu identified by the given {@code name}. If there is no menu associated
-     * with the given name, then an empty list is returned.
+     * with the given name, then an {@code null} is returned.
      *
      * @param name name of the menu
-     * @return list of menu-items
+     * @return menu-items
      */
     @SuppressWarnings("unchecked")
-    public List<Map> getMenu(String name) {
-        // validate menu property
+    public Map<String, Map> getMenu(String name) {
+        // Validate menu property.
         Object menuObj = super.get(KEY_MENU);
         if (menuObj == null) {
-            return Collections.emptyList();
+            return null;
         } else if (!(menuObj instanceof Map)) {
             throw new InvalidTypeException(
-                    "Value of 'menu' in the configurations must be a Map<String, Object>. Instead found " +
+                    "Value of 'menu' in the configurations must be a Map<String, Map>. Instead found " +
                             menuObj.getClass().getName() + ".");
         }
-        // validate requested menu
-        Object menuListObj = ((Map) menuObj).get(name);
-        if (menuListObj == null) {
-            return Collections.emptyList();
-        } else if (!(menuListObj instanceof List)) {
-            throw new InvalidTypeException(
-                    "Menu '" + name + "' must be a List<Map>. Instead found " + menuObj.getClass().getName() + ".");
+        // Validate requested menu.
+        Object menuMapObj = ((Map) menuObj).get(name);
+        if (menuMapObj == null) {
+            return null;
+        } else if (!(menuMapObj instanceof Map)) {
+            throw new InvalidTypeException("Menu '" + name + "' must be a Map<String, Map>. Instead found " +
+                                                   menuObj.getClass().getName() + ".");
         }
-        List menuList = (List) menuListObj;
-        // validate menu items
-        for (int i = 0; i < menuList.size(); i++) {
-            Object item = menuList.get(i);
-            if (item == null) {
-                throw new InvalidTypeException(
-                        "Menu '" + name + "' must be a List<Map>. Instead found a null value at index " + i + ".");
-            } else if (!(item instanceof Map)) {
-                throw new InvalidTypeException(
-                        "Menu '" + name + "' must be a List<Map>. Instead found a '" + item.getClass().getName() +
-                                "' value at index " + i + ".");
+        Map<?, ?> menuMap = (Map) menuMapObj;
+        // Validate menu items.
+        for (Map.Entry entry : menuMap.entrySet()) {
+            if (!(entry.getKey() instanceof String)) {
+                throw new InvalidTypeException("Menu '" + name + "' must be a Map<String, Map>. Instead found a '" +
+                                                       entry.getKey().getClass().getName() + "' key.");
+            }
+            if (!(entry.getValue() instanceof Map)) {
+                throw new InvalidTypeException("Menu '" + name + "' must be a Map<String, Map>. Instead found a '" +
+                                                       entry.getValue().getClass().getName() + "' value at key '" +
+                                                       entry.getKey() + "'.");
             }
         }
-        return (List<Map>) menuList;
+        return (Map<String, Map>) menuMap;
     }
 
     @SuppressWarnings("unchecked")
@@ -205,7 +199,8 @@ public class Configuration extends HashMap<String, Object> {
                 if (!(entry.getValue() instanceof String)) {
                     throw new InvalidTypeException(
                             "Value of 'errorPages' in the app configuration must be a Map<String, String> " +
-                                    "Instead found a '" + entry.getValue().getClass().getName() + "' value.");
+                                    "Instead found a '" + entry.getValue().getClass().getName() + "' value at key '" +
+                                    entry.getKey() + "'.");
                 }
             }
             return (Map<String, String>) errorPagesMap;
@@ -227,7 +222,7 @@ public class Configuration extends HashMap<String, Object> {
         }
     }
 
-    public Object getAsStringOrDefault(String key, String defaultValue) {
+    public String getAsStringOrDefault(String key, String defaultValue) {
         String value = getAsString(key);
         return (value == null) ? defaultValue : value;
     }
@@ -284,7 +279,7 @@ public class Configuration extends HashMap<String, Object> {
 
     @Override
     public Object computeIfAbsent(String key, Function<? super String, ?> mappingFunction) {
-        return super.computeIfAbsent(key, mappingFunction);
+        throw new UnsupportedOperationException("Cannot change Configuration.");
     }
 
     @Override
@@ -292,10 +287,63 @@ public class Configuration extends HashMap<String, Object> {
         throw new UnsupportedOperationException("Cannot change Configuration.");
     }
 
-    public void merge(Configuration otherConfiguration) {
-        for (Entry<String, Object> entry : otherConfiguration.entrySet()) {
-            super.putIfAbsent(entry.getKey(), entry.getValue());
+    public void merge(Map<?, ?> rawMap) {
+        for (Entry<?, ?> entry : rawMap.entrySet()) {
+            if (entry.getKey() instanceof String) {
+                super.compute((String) entry.getKey(), (key, oldValue) -> {
+                    Object newValue = entry.getValue();
+                    if (oldValue == null) {
+                        return newValue; // Add the new value.
+                    }
+
+                    if (newValue instanceof Map && oldValue instanceof Map) {
+                        return deepMergeMap((Map) oldValue, (Map) newValue);
+                    } else if (newValue instanceof List && oldValue instanceof List) {
+                        return deepMergeList((List) oldValue, (List) newValue);
+                    }
+                    return newValue; // Cannot merge if not a Map or a List, hence replace with the new value.
+                });
+            } else {
+                throw new InvalidTypeException("Configurations must be a Map<String, Object>. Instead found a '" +
+                                                       entry.getKey().getClass().getName() + "' key.");
+            }
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map deepMergeMap(Map oldMap, Map newMap) {
+        for (Object key : newMap.keySet()) {
+            Object newValueObj = newMap.get(key);
+            Object oldValueObj = oldMap.get(key);
+            if (oldValueObj instanceof Map && newValueObj instanceof Map) {
+                oldMap.put(key, deepMergeMap((Map) oldValueObj, (Map) newValueObj));
+            } else if (oldValueObj instanceof List && newValueObj instanceof List) {
+                oldMap.put(key, deepMergeList((List) oldValueObj, (List) newValueObj));
+            } else {
+                oldMap.put(key, newValueObj);
+            }
+        }
+        return oldMap;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List deepMergeList(List oldList, List newList) {
+        for (Object newItemObj : newList) {
+            int oldIndex = oldList.indexOf(newItemObj);
+            if (oldIndex != -1) {
+                Object oldItemObj = oldList.get(oldIndex);
+                if (oldItemObj instanceof List && newItemObj instanceof List) {
+                    oldList.set(oldIndex, deepMergeList((List) oldItemObj, (List) newItemObj));
+                } else if (oldItemObj instanceof Map && newItemObj instanceof Map) {
+                    oldList.set(oldIndex, deepMergeMap((Map) oldItemObj, (Map) newItemObj));
+                } else {
+                    oldList.set(oldIndex, newItemObj);
+                }
+            } else {
+                oldList.add(newItemObj);
+            }
+        }
+        return oldList;
     }
 
     public static Configuration emptyConfiguration() {

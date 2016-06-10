@@ -4,18 +4,22 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{placeholder "title"}}</title>
+    {{#placeholder "favicon"}}
+        <link rel="shortcut icon" href="{{public "images/default-favicon.png"}}" type="image/png" />
+    {{/placeholder}}
+    <title>{{#placeholder "title"}}UUF Base{{/placeholder}}</title>
     {{placeholder "css"}}
     {{placeholder "headJs"}}
     {{placeholder "headOther"}}
 </head>
+
 <body>
 <header class="header header-default">
     <div class="container-fluid">
         <div class="pull-left brand float-remove-xs text-center-xs">
             <a href="{{@app.context}}/">
                 <img src="{{public "images/logo.png"}}" class="logo" />
-                <h1>Unified UI Template App</h1>
+                <h1>{{@app.config.appName}}</h1>
             </a>
         </div>
         <div class="pull-right auth float-remove-xs text-center-xs">
@@ -25,52 +29,69 @@
         </div>
     </div>
 </header>
+
 <nav class="navbar navbar-default">
     <div class="container-fluid">
         <!-- Brand and toggle get grouped for better mobile display -->
         <div class="navbar-header">
             <!-- start of menu -->
-            {{#menu "main"}}
-                {{~#if this~}}
-                    <ul class="nav navbar-nav">
-                        {{~#each this}}
-                            <!-- end menu item -->
-                            {{~#if link}}
-                                <li><a href="{{@app.context}}/{{link}}"><i class="{{icon}}"></i>{{text}}</a></li>
-                            {{~else}}
-                            <!-- sub menu item -->
-                                {{~#each this}}
-                                    <li class="dropdown">
-                                        <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button"
-                                           aria-haspopup="true" aria-expanded="false">{{@key}} <span class="caret">
-                                        </span></a>
-                                        <ul class="dropdown-menu">
-                                            {{~#each this}}
-                                                {{~#if link}}
+            <ul class="nav navbar-nav">
+                {{~#menu "main"}}
+                    {{~#if @leaf}}
+                        <li>
+                            <a href="{{@app.context}}/{{link}}">{{#if icon}}<i class="{{icon}}"></i>{{/if}}{{@key}}</a>
+                        </li>
+                    {{~else}}
+                        <li class="dropdown">
+                            <a href="{{#if @this.link}}{{@this.link}}{{else}}#{{/if}}" class="dropdown-toggle"
+                               data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">
+                                {{#if @this.icon}}<i class="{{@this.icon}}"></i>{{/if}}{{@key~}}
+                                <span class="caret"></span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                {{~#menu .}}
+                                    {{~#if @leaf}}
+                                        <li>
+                                            <a href="{{@app.context}}/{{link}}">
+                                                {{#if icon}}<i class="{{icon}}"></i>{{/if}}{{@key}}</a>
+                                        </li>
+                                    {{~else}}
+                                        <li class="dropdown-submenu">
+                                            <a href="{{#if @this.link}}{{@this.link}}{{else}}#{{/if}}">{{@key}}</a>
+                                            <ul class="dropdown-menu">
+                                                {{#menu .}}
                                                     <li>
                                                         <a href="{{@app.context}}/{{link}}">
-                                                            <i class="{{icon}}"></i> {{text}}
+                                                            {{#if icon}}<i class="{{icon}}"></i>{{/if}}{{@key}}
                                                         </a>
                                                     </li>
-                                                {{~/if}}
-                                            {{~/each}}
-                                        </ul>
-                                    </li>
-                                {{~/each}}
-                            {{~/if}}
-                        {{~/each}}
-                    </ul>
-                {{~/if}}
-            {{/menu}}
+                                                {{/menu}}
+                                            </ul>
+                                        </li>
+                                    {{~/if}}
+                                {{~/menu}}
+                            </ul>
+                        </li>
+                    {{~/if}}
+                {{~/menu}}
+            </ul>
             <!-- end of menu -->
         </div>
     </div>
 </nav>
+
 <div class="page-content-wrapper">
     <div class="container-fluid body-wrapper">
         {{defineZone "content"}}
     </div>
 </div>
+<!-- footer -->
+<footer class="footer">
+    <div class="container-fluid">
+        {{defineZone "footer"}}
+    </div>
+</footer>
+<!-- /footer -->
 {{placeholder "js"}}
 </body>
 </html>

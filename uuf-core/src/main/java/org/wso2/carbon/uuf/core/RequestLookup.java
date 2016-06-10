@@ -17,7 +17,9 @@
 package org.wso2.carbon.uuf.core;
 
 import org.wso2.carbon.uuf.api.HttpRequest;
+import org.wso2.carbon.uuf.api.HttpResponse;
 import org.wso2.carbon.uuf.api.Placeholder;
+import org.wso2.carbon.uuf.internal.util.NameUtils;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -30,19 +32,21 @@ public class RequestLookup {
 
     private final String appContext;
     private final HttpRequest request;
-    private Map<String, String> uriParams;
+    private final HttpResponse response;
+    private Map<String, String> pathParams;
+    private final RenderingFlowTracker renderingFlowTracker;
     private final Deque<String> publicUriStack;
     private final EnumMap<Placeholder, StringBuilder> placeholderBuffers;
     private final Map<String, String> zoneContents;
-    private final Map<String, String> responseHeaders;
 
-    public RequestLookup(HttpRequest request) {
-        this.appContext = request.getAppContext();
+    public RequestLookup(String appContext, HttpRequest request, HttpResponse response) {
+        this.appContext = (appContext == null) ? request.getAppContext() : appContext;
         this.request = request;
+        this.response = response;
+        this.renderingFlowTracker = new RenderingFlowTracker();
         this.publicUriStack = new ArrayDeque<>();
         this.placeholderBuffers = new EnumMap<>(Placeholder.class);
         this.zoneContents = new HashMap<>();
-        this.responseHeaders = new HashMap<>();
     }
 
     public String getAppContext() {
@@ -53,24 +57,16 @@ public class RequestLookup {
         return request;
     }
 
-    public Map<String, String> getUriParams() {
-        return uriParams;
+    public HttpResponse getResponse() {
+        return response;
     }
 
-    void setUriParams(Map<String, String> uriParams) {
-        this.uriParams = uriParams;
+    public Map<String, String> getPathParams() {
+        return pathParams;
     }
 
-    void pushToPublicUriStack(String publicUri) {
-        publicUriStack.addLast(publicUri);
-    }
-
-    String popPublicUriStack() {
-        return publicUriStack.removeLast();
-    }
-
-    public String getPublicUri() {
-        return publicUriStack.peekLast();
+    void setPathParams(Map<String, String> pathParams) {
+        this.pathParams = pathParams;
     }
 
     public void addToPlaceholder(Placeholder placeholder, String content) {
@@ -109,17 +105,122 @@ public class RequestLookup {
         return Optional.ofNullable(zoneContents.get(zoneName));
     }
 
-    public Map<String, String> getResponseHeaders() {
-        return responseHeaders;
+    void pushToPublicUriStack(String publicUri) {
+        publicUriStack.addLast(appContext + publicUri);
     }
 
-    /**
-     * Sets a HTTP response header Access level is package protected since only 'org.wso2.carbon.uuf.core' can access.
-     *
-     * @param name
-     * @param value
-     */
-    void setResponseHeader(String name, String value) {
-        responseHeaders.put(name, value);
+    public String getPublicUri() {
+        return publicUriStack.peekLast();
+    }
+
+    String popPublicUriStack() {
+        return publicUriStack.removeLast();
+    }
+
+    public RenderingFlowTracker tracker() {
+        return renderingFlowTracker;
+    }
+
+    public static class RenderingFlowTracker {
+
+        private static final Integer TYPE_PAGE = 2;
+        private static final Integer TYPE_FRAGMENT = 3;
+        private static final Integer TYPE_LAYOUT = 4;
+
+        private final Deque<String> componentNamesStack;
+        private final Deque<Page> pageStack;
+        private final Deque<Fragment> fragmentStack;
+        private final Deque<Layout> layoutStack;
+        private final Deque<Integer> rendererStack;
+
+        RenderingFlowTracker() {
+            this.componentNamesStack = new ArrayDeque<>();
+            this.pageStack = new ArrayDeque<>();
+            this.fragmentStack = new ArrayDeque<>();
+            this.layoutStack = new ArrayDeque<>();
+            this.rendererStack = new ArrayDeque<>();
+        }
+
+        void start(Component component) {
+            componentNamesStack.addLast(component.getName());
+        }
+
+        void in(Page page) {
+            pageStack.addLast(page);
+            rendererStack.addLast(TYPE_PAGE);
+        }
+
+        void in(Layout layout) {
+            layoutStack.addLast(layout);
+            componentNamesStack.addLast(NameUtils.getComponentName(layout.getName()));
+            rendererStack.addLast(TYPE_LAYOUT);
+        }
+
+        void in(Fragment fragment) {
+            fragmentStack.addLast(fragment);
+            componentNamesStack.addLast(NameUtils.getComponentName(fragment.getName()));
+            rendererStack.addLast(TYPE_FRAGMENT);
+        }
+
+        public String getCurrentComponentName() {
+            return componentNamesStack.peekLast();
+        }
+
+        Optional<Page> getCurrentPage() {
+            return Optional.ofNullable(pageStack.peekLast());
+        }
+
+        Optional<Fragment> getCurrentFragment() {
+            return Optional.ofNullable(fragmentStack.peekLast());
+        }
+
+        Optional<Layout> getCurrentLayout() {
+            return Optional.ofNullable(layoutStack.peekLast());
+        }
+
+        public boolean isInPage() {
+            return rendererStack.peekLast().equals(TYPE_PAGE);
+        }
+
+        public boolean isInFragment() {
+            return rendererStack.peekLast().equals(TYPE_FRAGMENT);
+        }
+
+        public boolean isInLayout() {
+            return rendererStack.peekLast().equals(TYPE_LAYOUT);
+        }
+
+        void out(Page page) {
+            if (!isInPage()) {
+                throw new IllegalStateException("Not in a page");
+            }
+            pageStack.removeLast();
+            rendererStack.removeLast();
+        }
+
+        void out(Layout layout) {
+            if (!isInLayout()) {
+                throw new IllegalStateException("Not in a layout");
+            }
+            layoutStack.removeLast();
+            componentNamesStack.removeLast();
+            rendererStack.removeLast();
+        }
+
+        void out(Fragment fragment) {
+            if (!isInFragment()) {
+                throw new IllegalStateException("Not in a fragment");
+            }
+            fragmentStack.removeLast();
+            componentNamesStack.removeLast();
+            rendererStack.removeLast();
+        }
+
+        void finish() {
+            if (componentNamesStack.size() != 1) {
+                throw new IllegalStateException("Not where you started");
+            }
+            componentNamesStack.removeLast();
+        }
     }
 }
