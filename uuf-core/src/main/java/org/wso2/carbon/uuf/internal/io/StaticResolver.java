@@ -16,27 +16,35 @@
 
 package org.wso2.carbon.uuf.internal.io;
 
-import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.FilenameUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.wso2.carbon.kernel.utils.Utils;
 import org.wso2.carbon.uuf.api.HttpRequest;
+import org.wso2.carbon.uuf.api.HttpResponse;
 import org.wso2.carbon.uuf.core.App;
 import org.wso2.carbon.uuf.internal.util.MimeMapper;
-import org.wso2.carbon.uuf.internal.util.RequestUtil;
 import org.wso2.carbon.uuf.reference.ComponentReference;
 
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Duration;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Optional;
-import java.util.TimeZone;
 
+import static org.wso2.carbon.uuf.api.HttpResponse.CONTENT_TYPE_IMAGE_PNG;
+import static org.wso2.carbon.uuf.api.HttpResponse.CONTENT_TYPE_WILDCARD;
+import static org.wso2.carbon.uuf.api.HttpResponse.STATUS_BAD_REQUEST;
+import static org.wso2.carbon.uuf.api.HttpResponse.STATUS_INTERNAL_SERVER_ERROR;
+import static org.wso2.carbon.uuf.api.HttpResponse.STATUS_NOT_FOUND;
+import static org.wso2.carbon.uuf.api.HttpResponse.STATUS_NOT_MODIFIED;
+import static org.wso2.carbon.uuf.api.HttpResponse.STATUS_OK;
 import static org.wso2.carbon.uuf.reference.AppReference.DIR_NAME_COMPONENTS;
 import static org.wso2.carbon.uuf.reference.AppReference.DIR_NAME_THEMES;
 
@@ -44,9 +52,18 @@ public class StaticResolver {
 
     public static final String DIR_NAME_COMPONENT_RESOURCES = "base";
     public static final String DIR_NAME_PUBLIC_RESOURCES = "public";
-    private static final String CACHE_HEADER_DATE_FORMAT = "EEE, dd MMM yyyy HH:mm:ss zzz";
+
+    private static final DateTimeFormatter HTTP_DATE_FORMATTER;
+    private static final ZoneId GMT_TIME_ZONE;
+    private static final Logger log = LoggerFactory.getLogger(StaticResolver.class);
 
     private final Path appsHome;
+
+    static {
+        // See https://tools.ietf.org/html/rfc7231#section-7.1.1.1
+        HTTP_DATE_FORMATTER = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss zzz");
+        GMT_TIME_ZONE = ZoneId.of("GMT");
+    }
 
     /**
      * This constructor will assume uufHome as $PRODUCT_HOME/deployment/uufapps
@@ -59,53 +76,72 @@ public class StaticResolver {
         this.appsHome = appsHome.normalize();
     }
 
-    public Response.ResponseBuilder createDefaultFaviconResponse(HttpRequest request) {
+    public void serveDefaultFavicon(HttpRequest request, HttpResponse response) {
         InputStream inputStream = this.getClass().getClassLoader().getResourceAsStream("/favicon.png");
-        try {
-            // Since default favicon is very small (~1.9 kB) it is ok to load it directly to the memory.
-            byte[] data = IOUtils.toByteArray(inputStream);
-            // FIXME: 5/15/16 MSF4J doesn't support InputStream or byte arrays
-            return Response.ok().entity(data).type("image/png");
-        } catch (IOException e) {
-            // This never happens.
-            return Response.serverError().entity("Cannot read default favicon.");
+        if (inputStream == null) {
+            log.error("Cannot find default favicon 'favicon.png' in classpath.");
+            response.setStatus(STATUS_NOT_FOUND);
+        } else {
+            response.setStatus(STATUS_OK);
+            response.setContent(inputStream, CONTENT_TYPE_IMAGE_PNG);
         }
     }
 
-    public Response.ResponseBuilder createResponse(App app, HttpRequest request) {
+    public void serve(App app, HttpRequest request, HttpResponse response) {
         Path resourcePath;
         try {
-            if (RequestUtil.isComponentStaticResourceRequest(request)) {
+            if (request.isComponentStaticResourceRequest()) {
                 // /public/components/...
                 resourcePath = resolveResourceInComponent(app.getName(), request.getUriWithoutAppContext());
-            } else if (RequestUtil.isThemeStaticResourceRequest(request)) {
+            } else if (request.isThemeStaticResourceRequest()) {
                 // /public/themes/...
                 resourcePath = resolveResourceInTheme(app.getName(), request.getUriWithoutAppContext());
             } else {
                 // /public/...
-                return Response.status(400)
-                        .entity("Invalid static resource URI '" + request.getUri() + "'.")
-                        .header(HttpHeaders.CONTENT_TYPE, "text/plain");
+                response.setContent(STATUS_BAD_REQUEST, "Invalid static resource URI '" + request.getUri() + "'.");
+                return;
             }
         } catch (IllegalArgumentException e) {
-            return Response.status(400).entity(e.getMessage()).header(HttpHeaders.CONTENT_TYPE, "text/plain");
+            response.setContent(STATUS_BAD_REQUEST, e.getMessage());
+            return;
         } catch (Exception e) {
             // IOException or any other Exception
-            return Response.serverError()
-                    .entity("A server occurred while serving for static resource request '" + request.getUri() + "'.");
+            log.error("An error occurred when manipulating paths for request '" + request + "'.", e);
+            response.setContent(STATUS_INTERNAL_SERVER_ERROR,
+                                "A server occurred while serving for static resource request '" + request + "'.");
+            return;
+        }
+        if (!Files.isRegularFile(resourcePath) || Files.isDirectory(resourcePath)) {
+            // Either file does not exists or it is a non-regular file. i.e. a directory
+            response.setContent(STATUS_NOT_FOUND, "Requested resource '" + request.getUri() + "' does not exists.");
+            return;
         }
 
-        if (Files.isRegularFile(resourcePath) && !Files.isDirectory(resourcePath)) {
-            // This is an existing regular, non-directory file.
-            return getResponseBuilder(resourcePath, request);
-        } else {
-            // Either file does not exists or it is a non-regular file. i.e. a directory
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("Requested resource '" + request.getUri() + "' does not exists.");
+        Optional<ZonedDateTime> modifiedSinceDate = getIfModifiedSinceDate(request);
+        ZonedDateTime latModifiedDate;
+        try {
+            BasicFileAttributes fileAttributes = Files.readAttributes(resourcePath, BasicFileAttributes.class);
+            latModifiedDate = ZonedDateTime.ofInstant(fileAttributes.lastModifiedTime().toInstant(), GMT_TIME_ZONE);
+        } catch (IOException e) {
+            log.error("Cannot read attributes from file '" + resourcePath + "'", e);
+            // Since we failed to read file attributes, we cannot set cache headers. So just serve the file
+            // without any cache headers.
+            response.setStatus(STATUS_OK);
+            response.setContent(resourcePath, getContentType(request, resourcePath));
+            return;
         }
+        if (modifiedSinceDate.isPresent() && Duration.between(modifiedSinceDate.get(), latModifiedDate).isZero()) {
+            // Resource is NOT modified since the last serve.
+            response.setStatus(STATUS_NOT_MODIFIED);
+            return;
+        }
+
+        setCacheHeaders(response, latModifiedDate);
+        response.setStatus(STATUS_OK);
+        response.setContent(resourcePath, getContentType(request, resourcePath));
     }
 
-    private Path resolveResourceInComponent(String appSimpleName, String uriWithoutAppContext) {
+    private Path resolveResourceInComponent(String appName, String uriWithoutAppContext) {
         // Correct 'uriWithoutAppContext' value must be in either
         // "/public/components/{component-simple-name}/{fragment-simple-name}/{sub-directory}/{rest-of-the-path}"
         // format or in
@@ -132,7 +168,7 @@ public class StaticResolver {
             throw new IllegalArgumentException("Invalid static resource URI '" + uriWithoutAppContext + "'.");
         }
 
-        Path staticFilePath = appsHome.resolve(appSimpleName).resolve(DIR_NAME_COMPONENTS);
+        Path staticFilePath = appsHome.resolve(appName).resolve(DIR_NAME_COMPONENTS);
         String componentSimpleName = uriWithoutAppContext.substring(thirdSlashIndex + 1, fourthSlashIndex);
         staticFilePath = staticFilePath.resolve(componentSimpleName);
         String fragmentSimpleName = uriWithoutAppContext.substring(fourthSlashIndex + 1, fifthSlashIndex);
@@ -148,7 +184,7 @@ public class StaticResolver {
         return staticFilePath.resolve(relativePathString);
     }
 
-    private Path resolveResourceInTheme(String appSimpleName, String uriWithoutAppContext) {
+    private Path resolveResourceInTheme(String appName, String uriWithoutAppContext) {
         // Correct 'uriWithoutAppContext' value must be in
         // "/public/themes/{theme-name}/{sub-directory}/{rest-of-the-path}" format.
         // So there should be at least 5 slashes. Don't worry about multiple consecutive slashes. They  are covered
@@ -174,53 +210,37 @@ public class StaticResolver {
         String themeSimpleName = uriWithoutAppContext.substring(thirdSlashIndex + 1, fourthSlashIndex);
         // {sub-directory}/{rest-of-the-path}
         String relativePathString = uriWithoutAppContext.substring(fourthSlashIndex + 1, uriWithoutAppContext.length());
-        return appsHome.resolve(appSimpleName).resolve(DIR_NAME_THEMES)
+        return appsHome.resolve(appName).resolve(DIR_NAME_THEMES)
                 .resolve(themeSimpleName).resolve(DIR_NAME_PUBLIC_RESOURCES).resolve(relativePathString);
 
     }
 
-    private Response.ResponseBuilder getResponseBuilder(Path resource, HttpRequest request) {
+    private Optional<ZonedDateTime> getIfModifiedSinceDate(HttpRequest request) {
+        // If-Modified-Since: Sat, 29 Oct 1994 19:43:31 GMT
+        String ifModifiedSinceHeader = request.getHeaders().get("If-Modified-Since");
+        if (ifModifiedSinceHeader == null) {
+            return Optional.<ZonedDateTime>empty();
+        }
         try {
-            Optional<Date> ifModDate = getIfModifiedSinceDate(request);
-            BasicFileAttributes attrs = Files.readAttributes(resource, BasicFileAttributes.class);
-            Date resourceModDate = new Date(attrs.lastModifiedTime().toMillis());
-            if (ifModDate.isPresent() && (!ifModDate.get().after(resourceModDate))) {//!after = before || equal
-                return Response.notModified();
-            }
-            return setCacheHeaders(resourceModDate, Response.ok(resource.toFile(), getMime(resource.toString())));
-        } catch (IOException e) {
-            return Response.serverError().entity(e.getMessage());
+            return Optional.of(ZonedDateTime.parse(ifModifiedSinceHeader, HTTP_DATE_FORMATTER));
+        } catch (DateTimeParseException e) {
+            log.error("Cannot parse 'If-Modified-Since' HTTP header value '" + ifModifiedSinceHeader + "'.", e);
+            return Optional.<ZonedDateTime>empty();
         }
     }
 
-    private Optional<Date> getIfModifiedSinceDate(HttpRequest request) {
-        String httpDateStr = request.getHeaders().get("If-Modified-Since");
-        if (httpDateStr == null) {
-            return Optional.empty();
+    private String getContentType(HttpRequest request, Path resource) {
+        String extensionFromUri = FilenameUtils.getExtension(request.getUriWithoutAppContext());
+        Optional<String> contentType = MimeMapper.getMimeType(extensionFromUri);
+        if (contentType.isPresent()) {
+            return contentType.get();
         }
-        SimpleDateFormat df = new SimpleDateFormat(CACHE_HEADER_DATE_FORMAT);
-        df.setTimeZone(TimeZone.getTimeZone("GMT"));
-        try {
-            return Optional.of(df.parse(httpDateStr));
-        } catch (ParseException e) {
-            return Optional.empty();
-        }
+        String extensionFromPath = FilenameUtils.getExtension(resource.getFileName().toString());
+        return MimeMapper.getMimeType(extensionFromPath).orElse(CONTENT_TYPE_WILDCARD);
     }
 
-    private String getMime(String resourcePath) {
-        int extensionIndex = resourcePath.lastIndexOf(".");
-        String extension = (extensionIndex == -1) ? resourcePath : resourcePath.substring(extensionIndex + 1,
-                                                                                          resourcePath.length());
-        Optional<String> mime = MimeMapper.getMimeType(extension);
-        return (mime.isPresent()) ? mime.get() : "text/html";
-    }
-
-    private Response.ResponseBuilder setCacheHeaders(Date lastModDate, Response.ResponseBuilder builder) {
-        // Currently MSF4J does not implement cacheControl.Hence cache control headers are set manually
-        SimpleDateFormat df = new SimpleDateFormat(CACHE_HEADER_DATE_FORMAT);
-        df.setTimeZone(TimeZone.getTimeZone("GMT"));
-        builder.header("Last-Modified", df.format(lastModDate));
-        builder.header("Cache-Control", "public,max-age=2592000");
-        return builder;
+    private void setCacheHeaders(HttpResponse response, ZonedDateTime latModifiedDate) {
+        response.setHeader("Last-Modified", HTTP_DATE_FORMATTER.format(latModifiedDate));
+        response.setHeader("Cache-Control", "public,max-age=2592000");
     }
 }

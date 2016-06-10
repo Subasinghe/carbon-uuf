@@ -16,49 +16,56 @@
 
 package org.wso2.carbon.uuf.core;
 
+import org.wso2.carbon.uuf.api.Configuration;
+import org.wso2.carbon.uuf.api.HttpRequest;
+import org.wso2.carbon.uuf.api.HttpResponse;
 import org.wso2.carbon.uuf.api.auth.Session;
 import org.wso2.carbon.uuf.api.model.MapModel;
 import org.wso2.carbon.uuf.exception.FragmentNotFoundException;
+import org.wso2.carbon.uuf.exception.HttpErrorException;
 import org.wso2.carbon.uuf.exception.PageNotFoundException;
+import org.wso2.carbon.uuf.exception.PageRedirectException;
+import org.wso2.carbon.uuf.exception.SessionNotFoundException;
 import org.wso2.carbon.uuf.internal.core.auth.SessionRegistry;
 import org.wso2.carbon.uuf.internal.util.NameUtils;
-import org.wso2.carbon.uuf.internal.util.RequestUtil;
+import org.wso2.carbon.uuf.internal.util.UriUtils;
 import org.wso2.carbon.uuf.spi.model.Model;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static org.wso2.carbon.uuf.internal.util.NameUtils.getSimpleName;
+
 public class App {
 
     private final String name;
     private final String context;
+    private final Lookup lookup;
     private final Map<String, Component> components;
     private final Component rootComponent;
     private final Map<String, Theme> themes;
     private Theme appTheme;
+    private final Configuration configuration;
     private final SessionRegistry sessionRegistry;
 
-    public App(String name, Set<Component> components, Set<Theme> themes, SessionRegistry sessionRegistry) {
+    public App(String name, Lookup lookup, Set<Theme> themes, SessionRegistry sessionRegistry) {
         this.name = name;
+        this.lookup = lookup;
+        this.configuration = this.lookup.getConfiguration();
+        this.sessionRegistry = sessionRegistry;
 
-        this.components = components.stream().collect(Collectors.toMap(Component::getContext, cmp -> cmp));
+        this.components = this.lookup.getAllComponents().values().stream()
+                .collect(Collectors.toMap(Component::getContext, cmp -> cmp));
         this.rootComponent = this.components.remove(Component.ROOT_COMPONENT_CONTEXT);
-        this.context = this.rootComponent.getConfiguration().getAppContext()
-                .orElse("/" + NameUtils.getSimpleName(name));
+        String configuredServerAppContext = configuration.getServerAppContext();
+        this.context = (configuredServerAppContext == null) ? ("/" + getSimpleName(name)) : configuredServerAppContext;
 
         this.themes = themes.stream().collect(Collectors.toMap(Theme::getName, theme -> theme));
-        String defaultThemeName = this.rootComponent.getConfiguration().getDefaultThemeName();
-        Theme defaultTheme = this.themes.get(defaultThemeName);
-        if (defaultTheme == null) {
-            throw new IllegalArgumentException(
-                    "Theme '" + defaultThemeName + "' which is set as the default theme of app '" + name +
-                            "' does not exists.");
-        }
-        this.appTheme = defaultTheme;
-
-        this.sessionRegistry = sessionRegistry;
+        String configuredThemeName = this.configuration.getThemeName();
+        this.appTheme = (configuredThemeName == null) ? null : this.themes.get(configuredThemeName);
     }
 
     public String getName() {
@@ -73,65 +80,110 @@ public class App {
         return components;
     }
 
+    public Map<String, Fragment> getFragments() {
+        return lookup.getAllFragments();
+    }
+
     public Map<String, Theme> getThemes() {
         return themes;
     }
 
-    public String renderPage(String uriWithoutAppContext, RequestLookup requestLookup) {
+    /**
+     * @param request  HTTP request
+     * @param response HTTP response
+     * @return rendered HTML output
+     */
+    public String renderPage(HttpRequest request, HttpResponse response) {
+        RequestLookup requestLookup = new RequestLookup(configuration.getClientAppContext(), request, response);
         API api = new API(sessionRegistry, requestLookup);
-        getRenderingTheme(api).render(requestLookup);
-
-        // First try to render the page with 'root' component.
-        Optional<String> output = rootComponent.renderPage(uriWithoutAppContext, requestLookup, api);
-        if (output.isPresent()) {
+        // If exists, render Theme.
+        Theme renderingTheme = getRenderingTheme(api);
+        if (renderingTheme != null) {
+            renderingTheme.render(requestLookup);
+        }
+        try {
+            String html = renderPage(request.getUriWithoutAppContext(), null, requestLookup, api);
             updateAppTheme(api);
+            return html;
+        } catch (SessionNotFoundException e) {
+            String loginPageUri = configuration.getLoginPageUri();
+            if (loginPageUri == null) {
+                throw (HttpErrorException) e;
+            } else {
+                throw new PageRedirectException(loginPageUri);
+            }
+        }
+    }
+
+    public Optional<String> renderErrorPage(HttpErrorException ex, HttpRequest request, HttpResponse response) {
+        Map<String, String> errorPages = configuration.getErrorPages();
+        String errorPageUri = errorPages.getOrDefault(String.valueOf(ex.getHttpStatusCode()),
+                                                      errorPages.get("default"));
+        if (errorPageUri == null) {
+            return Optional.<String>empty();
+        }
+
+        RequestLookup requestLookup = new RequestLookup(configuration.getClientAppContext(), request, response);
+        API api = new API(sessionRegistry, requestLookup);
+        // If exists, render Theme.
+        Theme renderingTheme = getRenderingTheme(api);
+        if (renderingTheme != null) {
+            renderingTheme.render(requestLookup);
+        }
+        // Create Model with HTTP status code and error message.
+        Map<String, Object> modelMap = new HashMap<>(2);
+        modelMap.put("status", ex.getHttpStatusCode());
+        modelMap.put("message", ex.getMessage());
+        return Optional.of(renderPage(errorPageUri, new MapModel(modelMap), requestLookup, api));
+    }
+
+    private String renderPage(String pageUri, Model model, RequestLookup requestLookup, API api) {
+        // First try to render the page with 'root' component.
+        Optional<String> output = rootComponent.renderPage(pageUri, model, lookup, requestLookup, api);
+        if (output.isPresent()) {
             return output.get();
         }
 
         // Since 'root' component doesn't have the page, try with other components.
-        int secondSlashIndex = uriWithoutAppContext.indexOf('/', 1);
+        int secondSlashIndex = pageUri.indexOf('/', 1);
         if (secondSlashIndex == -1) {
-            // No component context found in the 'uriWithoutAppContext' URI.
-            throw new PageNotFoundException("Requested page '" + uriWithoutAppContext + "' does not exists.");
+            // No component context found in the 'pageUri' URI.
+            throw new PageNotFoundException("Requested page '" + pageUri + "' does not exists.");
         }
-        String componentContext = uriWithoutAppContext.substring(0, secondSlashIndex);
+        String componentContext = pageUri.substring(0, secondSlashIndex);
         Component component = components.get(componentContext);
         if (component == null) {
             // No component found for the 'componentContext' key.
-            throw new PageNotFoundException("Requested page '" + uriWithoutAppContext + "' does not exists.");
+            throw new PageNotFoundException("Requested page '" + pageUri + "' does not exists.");
         }
-        String pageUri = uriWithoutAppContext.substring(secondSlashIndex);
-        output = component.renderPage(pageUri, requestLookup, api);
+        String uriWithoutComponentContext = pageUri.substring(secondSlashIndex);
+        output = component.renderPage(uriWithoutComponentContext, model, lookup, requestLookup, api);
         if (output.isPresent()) {
-            updateAppTheme(api);
             return output.get();
         }
-        // No page found for 'pageUri' in the 'component'.
-        throw new PageNotFoundException("Requested page '" + uriWithoutAppContext + "' does not exists.");
+        // No page found for 'uriWithoutComponentContext' in the 'component'.
+        throw new PageNotFoundException("Requested page '" + pageUri + "' does not exists.");
     }
 
     /**
-     * Returns rendered output of this fragment uri. This method intended to use for serving AJAX requests.
-     *
-     * @param uriWithoutAppContext fragment uri
-     * @param requestLookup        request lookup
-     * @return rendered output
+     * @param request  HTTP request
+     * @param response HTTP response
+     * @return rendered HTML output
      */
-    public String renderFragment(String uriWithoutAppContext, RequestLookup requestLookup) {
-        String fragmentName = uriWithoutAppContext.substring(RequestUtil.FRAGMENTS_URI_PREFIX.length());
-        if (NameUtils.isSimpleName(fragmentName)) {
-            fragmentName = NameUtils.getFullyQualifiedName(rootComponent.getName(), fragmentName);
-        }
+    public String renderFragment(HttpRequest request, HttpResponse response) {
+        String uriWithoutAppContext = request.getUriWithoutAppContext();
+        String uriPart = uriWithoutAppContext.substring(UriUtils.FRAGMENTS_URI_PREFIX.length());
+        String fragmentName = NameUtils.getFullyQualifiedName(rootComponent.getName(), uriPart);
         // When building the dependency tree, all fragments are accumulated into the rootComponent.
-        Fragment fragment = rootComponent.getAllFragments().get(fragmentName);
+        Fragment fragment = lookup.getAllFragments().get(fragmentName);
         if (fragment == null) {
             throw new FragmentNotFoundException("Requested fragment '" + fragmentName + "' does not exists.");
         }
 
-        Model model = new MapModel(requestLookup.getRequest().getQueryParams().entrySet().stream()
-                                           .collect(Collectors.toMap(Map.Entry::getKey, entry -> (Object) entry)));
+        Model model = new MapModel(request.getQueryParams());
+        RequestLookup requestLookup = new RequestLookup(configuration.getClientAppContext(), request, response);
         API api = new API(sessionRegistry, requestLookup);
-        return fragment.render(model, rootComponent.getLookup(), requestLookup, api);
+        return fragment.render(model, lookup, requestLookup, api);
     }
 
     public boolean hasPage(String uriWithoutAppContext) {
@@ -157,33 +209,27 @@ public class App {
     }
 
     private Theme getRenderingTheme(API api) {
-        Session session = api.getSession();
-        if (session == null) {
+        Optional<String> sessionThemeName = api.getSession().map(Session::getThemeName);
+        if (!sessionThemeName.isPresent()) {
             return appTheme;
         }
-        String sessionThemeName = session.getThemeName();
-        if (sessionThemeName == null) {
-            return appTheme;
-        }
-        Theme sessionTheme = themes.get(sessionThemeName);
-        if (sessionTheme == null) {
-            throw new IllegalArgumentException(
-                    "Theme '" + sessionThemeName + "' which is set as for the current session does not exists.");
-        }
-        return sessionTheme;
+        return sessionThemeName
+                .map(themes::get)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Theme '" + sessionThemeName.get() +
+                                "' which is set as for the current session does not exists."));
     }
 
     private void updateAppTheme(API api) {
-        String appThemeName = api.getAppTheme();
-        if (appThemeName == null) {
+        Optional<String> appThemeName = api.getAppTheme();
+        if (!appThemeName.isPresent()) {
             return; // Nothing to update.
         }
-        Theme appTheme = themes.get(appThemeName);
-        if (appTheme == null) {
-            throw new IllegalArgumentException(
-                    "Theme '" + appThemeName + "' which is set for the app '" + name + "' does not exists.");
-        }
-        this.appTheme = appTheme; // Update the theme of the app.
+        // Update the theme of the app.
+        this.appTheme = appThemeName
+                .map(themes::get)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Theme '" + appThemeName.get() + "' which is set for the app '" + name + "' does not exists."));
     }
 
     @Override

@@ -19,13 +19,13 @@ package org.wso2.carbon.uuf.connector.ms;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
-import org.wso2.carbon.uuf.internal.util.RequestUtil;
+import org.wso2.carbon.uuf.internal.util.UriUtils;
 
 import javax.ws.rs.core.HttpHeaders;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Collections;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -42,7 +42,7 @@ public class MicroserviceHttpRequest implements org.wso2.carbon.uuf.api.HttpRequ
     private final String appContext;
     private final String uriWithoutAppContext;
     private final String queryString;
-    private final Map<String, List<String>> queryParams;
+    private final Map<String, Object> queryParams;
     private final byte[] contentBytes;
     private final int contentLength;
     private final InputStream inputStream;
@@ -69,12 +69,17 @@ public class MicroserviceHttpRequest implements org.wso2.carbon.uuf.api.HttpRequ
             rawQueryString = rawUri.substring(uriPathEndIndex + 1, rawUri.length());
         }
         this.uri = QueryStringDecoder.decodeComponent(rawUriPath);
-        this.appContext = RequestUtil.getAppContext(this.uri);
-        this.uriWithoutAppContext = RequestUtil.getUriWithoutAppContext(this.uri);
+        this.appContext = UriUtils.getAppContext(this.uri);
+        this.uriWithoutAppContext = UriUtils.getUriWithoutAppContext(this.uri);
         this.queryString = rawQueryString; // Query string is not very useful, so we don't bother to decode it.
-        this.queryParams = (rawQueryString == null) ? Collections.emptyMap() :
-                new QueryStringDecoder(rawQueryString, false).parameters();
-
+        if (rawQueryString != null) {
+            HashMap<String, Object> map = new HashMap<>();
+            new QueryStringDecoder(rawQueryString, false).parameters().forEach(
+                    (key, value) -> map.put(key, (value.size() == 1) ? value.get(0) : value));
+            this.queryParams = map;
+        } else {
+            this.queryParams = Collections.emptyMap();
+        }
         if (contentBytes != null) {
             this.contentBytes = contentBytes;
             this.contentLength = contentBytes.length;
@@ -145,7 +150,7 @@ public class MicroserviceHttpRequest implements org.wso2.carbon.uuf.api.HttpRequ
     }
 
     @Override
-    public Map<String, List<String>> getQueryParams() {
+    public Map<String, Object> getQueryParams() {
         return queryParams;
     }
 

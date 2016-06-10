@@ -1,15 +1,13 @@
 appName : Pet Store
 elementsPerPage: 10
-lifecycle:
-    - state: adopted
-      show: false
-    - state: new
-      show: true
-defaultTheme : org.wso2.uuf.theme.default
+theme : org.wso2.uuf.theme.default
 menu :
   main :
-    - { icon: "fw-home", link: "#home", text: "Home" }
-    - Pets :
-      - { icon: "fw fw-list", link: "pets", text: "See all our amazing pets" }
-      - { icon: "fw fw-add", link: "pets/new", text: "Add a new pets" }
-      - { icon: "fw fw-bug", link: "pets/snowball", text: "Pet of the month" }
+    Home : {link: "", icon: "fw-home"}
+    Pets :
+      See all our amazing pets : {link: "pets"}
+      Add a new pets : {link: "pets/new", icon: "fw fw-add"}
+      Pet of the month : {link: "pets/snowball" }
+errorPages:
+  "404": /base/error/404
+  default: /base/error/default

@@ -16,24 +16,28 @@
 
 package org.wso2.carbon.uuf.core;
 
+import org.wso2.carbon.uuf.exception.SessionNotFoundException;
 import org.wso2.carbon.uuf.internal.util.NameUtils;
-import org.wso2.carbon.uuf.spi.model.Model;
+import org.wso2.carbon.uuf.internal.util.UriUtils;
 import org.wso2.carbon.uuf.spi.Renderable;
+import org.wso2.carbon.uuf.spi.model.Model;
 
 public class Fragment {
 
     private final String name;
     private final String simpleName;
     private final Renderable renderer;
+    private final boolean isSecured;
 
     /**
      * @param name     fully qualified name
      * @param renderer renderer
      */
-    public Fragment(String name, Renderable renderer) {
+    public Fragment(String name, Renderable renderer, boolean isSecured) {
         this.name = name;
         this.simpleName = NameUtils.getSimpleName(name);
         this.renderer = renderer;
+        this.isSecured = isSecured;
     }
 
     public String getName() {
@@ -44,12 +48,20 @@ public class Fragment {
         return simpleName;
     }
 
-    public String render(Model model, ComponentLookup lookup, RequestLookup requestLookup, API api) {
-        lookup.in(this);
-        requestLookup.pushToPublicUriStack(requestLookup.getAppContext() + lookup.getPublicUriInfix(this));
+    public String render(Model model, Lookup lookup, RequestLookup requestLookup, API api) {
+        if (isSecured && !api.getSession().isPresent()) {
+            throw new SessionNotFoundException(
+                    "Fragment '" + name + "' is secured and required an user session to render.");
+        }
+
+        // Rendering flow tracking in.
+        requestLookup.tracker().in(this);
+        Component currentComponent = lookup.getComponent(requestLookup.tracker().getCurrentComponentName()).get();
+        requestLookup.pushToPublicUriStack(UriUtils.getPublicUri(currentComponent, this));
         String output = renderer.render(model, lookup, requestLookup, api);
+        // Rendering flow tracking out.
         requestLookup.popPublicUriStack();
-        lookup.out();
+        requestLookup.tracker().out(this);
         return output;
     }
 
@@ -65,6 +77,6 @@ public class Fragment {
 
     @Override
     public String toString() {
-        return "{\"name\": \"" + name + "\", \"renderer\": " + renderer + "}";
+        return "{\"name\": \"" + name + "\", \"renderer\": " + renderer + ", \"secured\": " + isSecured + "}";
     }
 }

@@ -22,7 +22,7 @@ import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wso2.carbon.uuf.core.API;
-import org.wso2.carbon.uuf.core.ComponentLookup;
+import org.wso2.carbon.uuf.core.Lookup;
 import org.wso2.carbon.uuf.core.RequestLookup;
 import org.wso2.carbon.uuf.exception.InvalidTypeException;
 import org.wso2.carbon.uuf.exception.UUFException;
@@ -35,38 +35,33 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 public class HbsPageRenderable extends HbsRenderable {
 
     private static final Logger log = LoggerFactory.getLogger(HbsPageRenderable.class);
 
-    protected final Optional<Executable> executable;
+    protected final Executable executable;
 
     public HbsPageRenderable(TemplateSource template) {
-        this(template, Optional.<Executable>empty());
+        this(template, null);
     }
 
     public HbsPageRenderable(TemplateSource template, Executable executable) {
-        this(template, Optional.of(executable));
-    }
-
-    private HbsPageRenderable(TemplateSource template, Optional<Executable> executable) {
         super(template);
         this.executable = executable;
     }
 
     @Override
-    public String render(Model model, ComponentLookup lookup, RequestLookup requestLookup, API api) {
+    public String render(Model model, Lookup lookup, RequestLookup requestLookup, API api) {
         Context context;
-        if (executable.isPresent()) {
-            Object executableOutput = executeExecutable(getExecutableContext(lookup, requestLookup), api);
+        if (executable == null) {
+            context = Context.newContext(getHbsModel(model, lookup, requestLookup, api));
+        } else {
+            Object executableOutput = executeExecutable(getExecutableContext(model, lookup, requestLookup), api);
             if (log.isDebugEnabled()) {
                 log.debug("Executable output \"" + DebugUtil.safeJsonString(executableOutput) + "\".");
             }
-            context = Context.newContext(executableOutput).combine(getHbsModel(lookup, requestLookup));
-        } else {
-            context = Context.newContext(getHbsModel(lookup, requestLookup));
+            context = Context.newContext(executableOutput).combine(getHbsModel(model, lookup, requestLookup, api));
         }
 
         context.data(DATA_KEY_LOOKUP, lookup);
@@ -89,31 +84,31 @@ public class HbsPageRenderable extends HbsRenderable {
     }
 
     protected Map executeExecutable(Object context, API api) {
-        Object executableOutput = executable.get().execute(context, api);
+        Object executableOutput = executable.execute(context, api);
         if (executableOutput == null) {
             return Collections.emptyMap();
         }
         if ((executableOutput instanceof Map)) {
             return (Map) executableOutput;
         } else {
-            throw new InvalidTypeException(
-                    "Expected a Map as the output from executing the executable '" + executable.get() +
-                            "'. Instead found '" + executableOutput.getClass().getName() + "'");
+            throw new InvalidTypeException("Expected a Map as the output from executing the executable '" + executable +
+                                                   "'. Instead found '" + executableOutput.getClass().getName() + "'.");
         }
     }
 
-    protected Map<String, Object> getExecutableContext(ComponentLookup lookup, RequestLookup requestLookup) {
+    protected Map<String, Object> getExecutableContext(Model model, Lookup lookup, RequestLookup requestLookup) {
         Map<String, Object> context = new HashMap<>();
-        context.put("request", requestLookup.getRequest());
-        context.put("uriParams", requestLookup.getUriParams());
         context.put("app",
-                    ImmutableMap.of("context", requestLookup.getAppContext(), "config", lookup.getConfigurations()));
+                    ImmutableMap.of("context", requestLookup.getAppContext(), "config", lookup.getConfiguration()));
+        context.put("request", requestLookup.getRequest());
+        context.put("response", requestLookup.getResponse());
+        context.put("pathParams", requestLookup.getPathParams());
+        context.put("params", ((model == null) ? null : model.toMap()));
         return context;
     }
 
     @Override
     public String toString() {
-        return "{\"path\": \"" + templatePath + "\"" +
-                (executable.isPresent() ? ",\"js\": \"" + executable + "\"}" : "}");
+        return "{\"path\": \"" + templatePath + "\"" + (executable == null ? "}" : ", \"js\": " + executable + "}");
     }
 }

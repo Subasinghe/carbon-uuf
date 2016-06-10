@@ -38,10 +38,12 @@
         <dependency>
             <groupId>org.osgi</groupId>
             <artifactId>org.osgi.core</artifactId>
+            <version>${osgi.api.version}</version>
         </dependency>
         <dependency>
             <groupId>org.wso2.carbon</groupId>
             <artifactId>org.wso2.carbon.launcher</artifactId>
+            <version>${carbon.kernel.version}</version>
         </dependency>
         <dependency>
             <groupId>org.wso2.carbon</groupId>
@@ -70,13 +72,13 @@
         <dependency>
             <groupId>org.wso2.uuf</groupId>
             <artifactId>org.wso2.uuf.core.feature</artifactId>
-            <version>${uuf.version}</version>
+            <version>${carbon.uuf.version}</version>
             <type>zip</type>
         </dependency>
         <dependency>
             <groupId>org.wso2.uuf</groupId>
             <artifactId>org.wso2.uuf.handlebars.feature</artifactId>
-            <version>${uuf.version}</version>
+            <version>${carbon.uuf.version}</version>
             <type>zip</type>
         </dependency>
         <dependency>
@@ -105,7 +107,7 @@
                                 <artifactItem>
                                     <groupId>org.wso2.carbon</groupId>
                                     <artifactId>wso2carbon-kernel</artifactId>
-                                    <!--<version>${carbon.kernel.version}</version>-->
+                                    <version>${carbon.kernel.version}</version>
                                     <type>zip</type>
                                     <overWrite>true</overWrite>
                                     <outputDirectory>target</outputDirectory>
@@ -153,6 +155,46 @@
                             </artifactItems>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>copy-sample-bundle</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.wso2.uuf.sample</groupId>
+                                    <artifactId>org.wso2.uuf.sample.pets-store.bundle</artifactId>
+                                    <version>1.0.0-SNAPSHOT</version>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>
+                                        ${basedir}/target/wso2carbon-kernel-${carbon.kernel.version}/osgi/dropins
+                                    </outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-sample-bundle</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.wso2.uuf.sample</groupId>
+                                    <artifactId>org.wso2.uuf.sample.pets-store.bundle</artifactId>
+                                    <version>1.0.0-SNAPSHOT</version>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>
+                                        ${basedir}/target/wso2carbon-kernel-${carbon.kernel.version}/osgi/dropins
+                                    </outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>
@@ -187,11 +229,11 @@
                                 </feature>
                                 <feature>
                                     <id>org.wso2.uuf.core.feature</id>
-                                    <version>${uuf.version}</version>
+                                    <version>${carbon.uuf.version}</version>
                                 </feature>
                                 <feature>
                                     <id>org.wso2.uuf.handlebars.feature</id>
-                                    <version>${uuf.version}</version>
+                                    <version>${carbon.uuf.version}</version>
                                 </feature>
                                 <feature>
                                     <id>org.wso2.carbon.jndi.feature</id>
@@ -263,11 +305,11 @@
                                 </feature>
                                 <feature>
                                     <id>org.wso2.uuf.core.feature.group</id>
-                                    <version>${uuf.version}</version>
+                                    <version>${carbon.uuf.version}</version>
                                 </feature>
                                 <feature>
                                     <id>org.wso2.uuf.handlebars.feature.group</id>
-                                    <version>${uuf.version}</version>
+                                    <version>${carbon.uuf.version}</version>
                                 </feature>
                                 <feature>
                                     <id>org.wso2.carbon.jndi.feature.group</id>

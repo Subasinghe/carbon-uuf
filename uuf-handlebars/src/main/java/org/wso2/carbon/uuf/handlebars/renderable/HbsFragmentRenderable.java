@@ -21,7 +21,7 @@ import com.github.jknack.handlebars.io.TemplateSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wso2.carbon.uuf.core.API;
-import org.wso2.carbon.uuf.core.ComponentLookup;
+import org.wso2.carbon.uuf.core.Lookup;
 import org.wso2.carbon.uuf.core.RequestLookup;
 import org.wso2.carbon.uuf.exception.UUFException;
 import org.wso2.carbon.uuf.handlebars.DebugUtil;
@@ -45,11 +45,17 @@ public class HbsFragmentRenderable extends HbsPageRenderable {
     }
 
     @Override
-    public String render(Model model, ComponentLookup lookup, RequestLookup requestLookup, API api) {
+    public String render(Model model, Lookup lookup, RequestLookup requestLookup, API api) {
         Context context;
-        if (executable.isPresent()) {
-            Object executableOutput = executeExecutable(getExecutableContext(model, lookup, requestLookup),
-                                                        api);
+        if (executable == null) {
+            Map<String, Object> hbsModel = getHbsModel(model, lookup, requestLookup, api);
+            if (model instanceof ContextModel) {
+                context = Context.newContext(((ContextModel) model).getParentContext(), hbsModel);
+            } else {
+                context = Context.newContext(hbsModel);
+            }
+        } else {
+            Object executableOutput = executeExecutable(getExecutableContext(model, lookup, requestLookup), api);
             if (log.isDebugEnabled()) {
                 log.debug("Executable output \"" + DebugUtil.safeJsonString(executableOutput) + "\".");
             }
@@ -58,14 +64,7 @@ public class HbsFragmentRenderable extends HbsPageRenderable {
             } else {
                 context = Context.newContext(executableOutput);
             }
-            context.combine(getHbsModel(model, lookup, requestLookup));
-        } else {
-            Map<String, Object> hbsModel = getHbsModel(model, lookup, requestLookup);
-            if (model instanceof ContextModel) {
-                context = Context.newContext(((ContextModel) model).getParentContext(), hbsModel);
-            } else {
-                context = Context.newContext(hbsModel);
-            }
+            context.combine(getHbsModel(model, lookup, requestLookup, api));
         }
 
         context.data(DATA_KEY_LOOKUP, lookup);
@@ -82,21 +81,8 @@ public class HbsFragmentRenderable extends HbsPageRenderable {
         }
     }
 
-    private Map<String, Object> getExecutableContext(Model model, ComponentLookup lookup, RequestLookup requestLookup) {
-        Map<String, Object> context = getExecutableContext(lookup, requestLookup);
-        context.put("params", model.toMap());
-        return context;
-    }
-
-    private Map<String, Object> getHbsModel(Model model, ComponentLookup lookup, RequestLookup requestLookup) {
-        Map<String, Object> context = getHbsModel(lookup, requestLookup);
-        context.put("@params", model.toMap());
-        return context;
-    }
-
     @Override
     public String toString() {
-        return "{\"path\": \"" + templatePath + "\"" +
-                (executable.isPresent() ? ",\"js\": \"" + executable + "\"}" : "}");
+        return "{\"path\": \"" + templatePath + "\"" + (executable == null ? "}" : ", \"js\": " + executable + "}");
     }
 }
