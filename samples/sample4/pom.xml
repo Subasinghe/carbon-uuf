@@ -48,7 +48,8 @@
         <module>apps/org.wso2.uuf.sample.features-app</module>
         <module>osgi-services/pets-store</module>
         <module>p2-features/org.wso2.uuf.sample.pets-store.feature</module>
-        <module>apps/org.wso2.uuf.sample.bpmn-explorer</module>
+        <module>apps/org.wso2.carbon.ui.bpmn-explorer</module>
+        <module>osgi-services/org.wso2.carbon.ui.bpmn-explorer.bundle</module>
     </modules>
 
 </project>
